@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Shared Countdown Timer</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    #timer { font-size: 3em; margin: 20px 0; }
+    #set-timer { margin-top: 30px; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Shared Countdown Timer</h1>
+  <div id="timer">Loading...</div>
+  <form id="set-timer">
+    <input type="number" id="duration" min="1" value="60" required>
+    <button type="submit">Set Timer (seconds)</button>
+  </form>
+  <div class="error" id="error"></div>
+  <script>
+    const timerDiv = document.getElementById('timer');
+    const errorDiv = document.getElementById('error');
+    const durationInput = document.getElementById('duration');
+    let ws;
+    let timeLeft = 0;
+
+    function displayTimer(seconds) {
+      if (seconds <= 0) {
+        timerDiv.textContent = "Time's up!";
+        return;
+      }
+      const mins = String(Math.floor(seconds / 60)).padStart(2, '0');
+      const secs = String(seconds % 60).padStart(2, '0');
+      timerDiv.textContent = `${mins}:${secs}`;
+    }
+
+    // Connect WebSocket for live updates
+    function connectWS() {
+      ws = new WebSocket(`ws://${window.location.host}`);
+      ws.onmessage = e => {
+        const data = JSON.parse(e.data);
+        if (typeof data.timeLeft === 'number') {
+          timeLeft = data.timeLeft;
+          displayTimer(timeLeft);
+          durationInput.value = data.duration;
+        }
+      };
+      ws.onclose = () => setTimeout(connectWS, 2000); // Reconnect on disconnect
+    }
+
+    connectWS();
+
+    // Countdown locally (for smooth UI)
+    setInterval(() => {
+      if (timeLeft > 0) {
+        timeLeft--;
+        displayTimer(timeLeft);
+      }
+    }, 1000);
+
+    // Initial load: get current timer
+    fetch('/api/timer')
+      .then(r => r.json())
+      .then(data => {
+        timeLeft = data.timeLeft;
+        displayTimer(timeLeft);
+        durationInput.value = data.duration;
+      });
+
+    // Set timer (broadcast to all via server)
+    document.getElementById('set-timer').onsubmit = function(e) {
+      e.preventDefault();
+      errorDiv.textContent = '';
+      const duration = parseInt(durationInput.value);
+      fetch('/api/set-timer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.ok) throw new Error(data.error || 'Unknown error');
+      })
+      .catch(err => errorDiv.textContent = err.message);
+    };
+  </script>
+</body>
+</html>
